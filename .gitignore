@@ -1,0 +1,6 @@
+.DS_Store
+.claude/
+.mcp.json
+*.swp
+*.swo
+*~
