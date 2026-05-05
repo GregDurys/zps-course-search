@@ -43,7 +43,7 @@ Each scope can be toggled independently via the toolbar. Only enabled scopes are
 - Clicking a discuss result switches to the Discuss tab, expands collapsed reply threads, and highlights the matching comment
 - Lab markdown rendered inline with a preview panel. Lab content is normally only visible after launching a lab
 
-<img src="screenshots/lab-preview.png" alt="Lab preview" width="600">
+![Lab preview](screenshots/lab-preview.png)
 
 - Per-course cache keyed by the courseid query parameter. Course switching does not require re-indexing
 - Active selection indicator on clicked search results
