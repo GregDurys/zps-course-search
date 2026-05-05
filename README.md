@@ -2,23 +2,22 @@
 
 Tampermonkey userscript that adds full-text search to Zero Point Security course players.
 
-Zero Point Security courses contain 160+ units across 20+ modules, but the LearnWorlds platform provides no search functionality. Finding a specific command, technique, or concept means manually clicking through modules. Lab instructions are locked behind SCORM iframes and not searchable at all. This script fixes that.
+The LearnWorlds platform used by Zero Point Security ships no in-course search. Finding a specific command, technique, or concept means manually clicking through modules one by one. Lab instructions are locked behind SCORM iframes and not searchable at all. This script injects a Search tab next to Path and Discuss in the course player sidebar and indexes every unit, making any keyword or phrase findable across the whole course from one place.
 
-The course material doubles as a reference during real engagements, but finding a specific command, technique, or code snippet across 160+ units is impractical without search. This tool makes the course material usable as a day-to-day reference, not just a learning path.
-
-![Search results](screenshots/search-results.png)
+![Search tab](screenshots/search-empty.png)
 
 ## Features
 
-- Full-text search across ebook prose, code blocks, lab markdown, and discussion comments
-- Lab markdown rendered inline with a preview panel (lab content is normally only visible after launching a lab)
-- Scope toggles for prose, lines, code, labs, and discussions
-- Exact phrase and fuzzy matching with whitespace-flexible search
-- Multi-hit highlighting with per-occurrence navigation
-- Suppress "Leave site?" dialog toggle for faster browsing between lab units
-- Per-course cache (index once, search instantly)
+- Full-text search across ebook prose, code blocks, lab markdown, discussion comments, and unit titles
+- Individually toggleable scope filters via the toolbar (prose, lines, code, labs, discussions)
+- Discussion search indexes all student and staff comments from the Discuss tab, including author names. Clicking a discuss result switches to the Discuss tab, expands collapsed reply threads, and highlights the matching comment
+- Exact phrase or fuzzy mode (~) with whitespace-flexible matching that tolerates curly quotes, en-dashes, non-breaking spaces, and zero-width characters injected by the LearnWorlds renderer
+- Multi-hit highlighting with one result row per occurrence and separate navigation between matches
+- Lab markdown fetched via the attachment-unlock API during indexing and rendered inline with a preview panel. Lab content is normally only visible after launching a lab
+- "Suppress Leave site? prompts" toggle silences the SCORM beforeunload dialog when navigating between lab units. Recommended on for speed-skimming, off when actually solving labs
+- Per-course cache keyed by the courseid query parameter. Course switching does not require re-indexing
 
-![Lab preview](screenshots/lab-preview.png)
+![Search results](screenshots/search-results.png)
 
 ## Compatibility
 
@@ -36,20 +35,26 @@ The script only reads course content that is already accessible to enrolled stud
 
 1. Open any Zero Point Security course player page
 2. Click the "Search" tab in the left sidebar
-3. Click "Index" once to build the search cache (takes 15-40 seconds depending on concurrency settings)
+3. Click "Index" once to build the search cache
 4. Search for any keyword, command, or phrase
 
-Results are grouped by module and unit. Click any result to navigate to that unit with the match highlighted. Use the scope toggles to filter by content type (prose, code blocks, labs, discussions).
+Results are grouped by module and unit. Click any result to navigate to that unit with the match highlighted. Use the scope toggles to filter by content type.
 
-## Roadmap
+The course material is a valuable reference during real engagements, but looking up a specific technique or code snippet across dozens of modules is impractical without search. This tool makes the course material usable as a day-to-day reference, not just a learning path.
+
+![Lab preview](screenshots/lab-preview.png)
+
+## Todo
 
 - Search through highlights
-- Search through notes and bookmarks
+- Search through notes
 - Export search results
 
 ## Support
 
-[![Buy Me A Coffee](https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png)](https://buymeacoffee.com/payloadforge)
+If you find this useful, consider buying me a coffee.
+
+<a href="https://buymeacoffee.com/payloadforge" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
 
 ## Licence
 
