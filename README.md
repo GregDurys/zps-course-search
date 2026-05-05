@@ -16,26 +16,26 @@ Each scope can be toggled independently via the toolbar. Only enabled scopes are
 
 | Icon | Scope | Description | Default |
 |------|-------|-------------|---------|
-| <img src="icons/title.svg" width="20"> | Title | Unit titles and section headings | On |
-| <img src="icons/content.svg" width="20"> | Body text | Ebook prose and paragraph content | Off |
-| <img src="icons/code.svg" width="20"> | Code | Code blocks and inline code | Off |
-| <img src="icons/lab.svg" width="20"> | Labs | Lab markdown files fetched via the attachment-unlock API | Off |
-| <img src="icons/discuss.svg" width="20"> | Discussions | Student and staff comments from the Discuss tab | Off |
+| <img src="icons/title.svg" width="20"> | Title | Unit titles and section headings. | On |
+| <img src="icons/content.svg" width="20"> | Body text | Ebook prose and paragraph content. | Off |
+| <img src="icons/code.svg" width="20"> | Code | Code blocks and inline code. | Off |
+| <img src="icons/lab.svg" width="20"> | Labs | Lab markdown files fetched via the attachment-unlock API. | Off |
+| <img src="icons/discuss.svg" width="20"> | Discussions | Student and staff comments from the Discuss tab. | Off |
 
 ### Search modes
 
 | Mode | How to use | Description |
 |------|-----------|-------------|
-| Exact | Type normally | Matches the exact phrase, flexible on whitespace and special characters |
-| Fuzzy | Prefix with `~` | Matches words in any order within a paragraph. Tolerates curly quotes, en-dashes, non-breaking spaces, and zero-width characters injected by the LearnWorlds renderer |
+| Exact | Type normally | Matches the exact phrase, flexible on whitespace and special characters. |
+| Fuzzy | Prefix with `~` | Matches words in any order within a paragraph. Tolerates curly quotes, en-dashes, non-breaking spaces, and zero-width characters injected by the LearnWorlds renderer. |
 
 ### Additional toolbar controls
 
 | Icon | Name | Description |
 |------|------|-------------|
-| <img src="icons/fuzzy.svg" width="20"> | Fuzzy toggle | Switch between exact and fuzzy search mode |
-| <img src="icons/clear.svg" width="20"> | Clear | Clear the search query and results |
-| <img src="icons/suppress.svg" width="20"> | Suppress prompts | Silences the "Leave site?" beforeunload dialog when navigating between lab units. Recommended on for speed-skimming, off when solving labs |
+| <img src="icons/fuzzy.svg" width="20"> | Fuzzy toggle | Switch between exact and fuzzy search mode. |
+| <img src="icons/clear.svg" width="20"> | Clear | Clear the search query and results. |
+| <img src="icons/suppress.svg" width="20"> | Suppress prompts | Silences the "Leave site?" beforeunload dialog when navigating between lab units. Recommended on for speed-skimming, off when solving labs. |
 
 ### Other features
 
@@ -48,11 +48,13 @@ Each scope can be toggled independently via the toolbar. Only enabled scopes are
 - Per-course cache keyed by the courseid query parameter. Course switching does not require re-indexing
 - Active selection indicator on clicked search results
 
-<img src="screenshots/search-results.png" alt="Search results" width="380">
+![Search results](screenshots/search-results.png)
 
 ## Compatibility
 
 Tested on Chrome with Tampermonkey, but should work in Firefox too.
+
+## Privacy
 
 The script only reads course content that is already accessible to enrolled students. It does not modify any data, send external requests, or interact with anything beyond the course player DOM.
 
@@ -73,13 +75,13 @@ Results are grouped by module and unit. Click any result to navigate to that uni
 
 ## Indexing
 
-During indexing, the script makes the following requests to build the search cache. All requests use the same authentication as normal course browsing.
+Indexing runs in three phases: ebook and code content first, then lab markdown, then discussion comments. Each phase uses a configurable number of concurrent workers (default 4) with an optional delay between requests. The results are stored in localStorage keyed by course ID, so indexing only needs to run once per course. All requests use the same authentication as normal course browsing.
 
 | Content type | Endpoint | Requests | Notes |
 |-------------|----------|----------|-------|
-| Ebook units | GET per unit page | ~135 | Fetches rendered HTML |
-| Discussion comments | GET /api/posts per unit | ~164 | Returns all posts for a unit in a single call |
-| Lab markdown | GET /api/unlock/attachment per SCORM unit | ~22 | Fetches .md files via signed Azure Blob URLs |
+| Ebook units | GET per unit page | ~135 | Fetches rendered HTML. |
+| Discussion comments | GET /api/posts per unit | ~164 | Returns all posts for a unit in a single call. |
+| Lab markdown | GET /api/unlock/attachment per SCORM unit | ~22 | Fetches .md files via signed Azure Blob URLs. |
 
 Request counts are approximate and depend on the course. Concurrency and delay between requests are configurable at the top of the script.
 
@@ -97,4 +99,4 @@ If you find this useful, consider buying me a coffee.
 
 ## Licence
 
-[MIT](LICENSE)
+MIT
