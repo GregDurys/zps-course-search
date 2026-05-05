@@ -41,7 +41,7 @@ Each scope can be toggled independently via the toolbar. Only enabled scopes are
 
 - Multi-hit highlighting: long bodies, code blocks, and discussions emit one result row per occurrence with separate navigation between matches
 - Clicking a discuss result switches to the Discuss tab, expands collapsed reply threads, and highlights the matching comment
-- Lab markdown rendered inline with a preview panel. Lab content is normally only visible after launching a lab
+- Lab markdown rendered inline with a preview panel. Lab content is available as a downloadable file but not rendered on the page by default
 
 ![Lab preview](screenshots/lab-preview.png)
 
