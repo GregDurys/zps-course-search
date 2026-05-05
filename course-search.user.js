@@ -1,6 +1,6 @@
 // ==UserScript==
-// @name         CRTO Course Search
-// @namespace    crto-course-search
+// @name         ZPS Course Search
+// @namespace    zps-course-search
 // @version      0.9.6
 // @description  Cross-unit full-text search for ZeroPoint Security course players. Adds a Search tab to the sidebar that finds keywords across every ebook unit, code block, lab markdown, and discussion comments. Clicking a result jumps to the unit with the match highlighted.
 // @author       gregd
@@ -67,7 +67,7 @@
 //   Tampermonkey. Other LearnWorlds-hosted courses on the same domain are
 //   expected to behave the same way.
 //
-// Source: https://github.com/<your-fork-or-gist>  (update before sharing)
+// Source: https://github.com/GregDurys/zps-course-search
 // License: MIT
 //
 
