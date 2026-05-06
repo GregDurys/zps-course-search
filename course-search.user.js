@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ZPS Course Search
 // @namespace    zps-course-search
-// @version      0.9.8
+// @version      0.10.4
 // @description  Cross-unit full-text search for ZeroPoint Security course players. Adds a Search tab to the sidebar that finds keywords across every ebook unit, code block, lab markdown, and discussion comments. Clicking a result jumps to the unit with the match highlighted.
 // @author       gregd
 // @match        https://www.zeropointsecurity.co.uk/*
@@ -314,7 +314,8 @@
     }
 
     function clearHighlight() {
-        const iframeDoc = document.querySelector('#playerFrame')?.contentDocument;
+        const ifr = document.querySelector('#playerFrame');
+        const iframeDoc = (ifr?.contentWindow) ? ifr.contentDocument : null;
         if (iframeDoc) {
             const parents = new Set();
             iframeDoc.querySelectorAll('.crto-hl').forEach(m => { parents.add(m.parentNode); m.parentNode.replaceChild(iframeDoc.createTextNode(m.textContent), m); });
@@ -492,7 +493,8 @@
         if (!needles.length) return false;
 
         const marks = [];
-        const iframeDoc = document.querySelector('#playerFrame')?.contentDocument;
+        const _ifr = document.querySelector('#playerFrame');
+        const iframeDoc = (_ifr?.contentWindow) ? _ifr.contentDocument : null;
         if (iframeDoc?.body) {
             // The lab panel handles 'lab' kind; it has no counterpart in the
             // iframe, so skip iframe marking when the hit was in a lab field.
@@ -517,12 +519,14 @@
         // Single re-scroll after 600ms to handle reflow, then stop.
         // Previous approach (300/800/1500ms) fought user scrolling.
         const reScrollId = setTimeout(() => {
-            const m = document.querySelector('#crto-lab-panel .crto-hl') || document.querySelector('#playerFrame')?.contentDocument?.querySelector('.crto-hl');
+            const _ri = document.querySelector('#playerFrame');
+            const m = document.querySelector('#crto-lab-panel .crto-hl') || ((_ri?.contentWindow) ? _ri.contentDocument?.querySelector('.crto-hl') : null);
             if (m) doScroll(m);
         }, 600);
         // Cancel even the single re-scroll if user scrolls anywhere
         const cancelReScroll = () => { clearTimeout(reScrollId); scrollTargets.forEach(el => el.removeEventListener('wheel', cancelReScroll)); };
-        const ifrDoc = document.querySelector('#playerFrame')?.contentDocument;
+        const _si = document.querySelector('#playerFrame');
+        const ifrDoc = (_si?.contentWindow) ? _si.contentDocument : null;
         const scrollTargets = [document, ifrDoc, document.querySelector('#crto-lab-panel')].filter(Boolean);
         scrollTargets.forEach(el => el.addEventListener('wheel', cancelReScroll, { passive: true, once: true }));
         setTimeout(cancelReScroll, 1500);
@@ -1377,8 +1381,7 @@
             title.appendChild(highlightSnippet(u.title || '', query, fuzzy));
             const n = el('div', { attrs: { class: 'crto-unit-row' } }, [badge, title]);
             n.addEventListener('click', () => {
-                try { localStorage.setItem('crtoLabPanelShown.' + u.id, '1'); } catch {}
-                document.querySelectorAll('#crtoResults .crto-active').forEach(el => el.classList.remove('crto-active'));
+                                document.querySelectorAll('#crtoResults .crto-active').forEach(el => el.classList.remove('crto-active'));
                 n.classList.add('crto-active');
                 navigateToUnit(u);
             });
@@ -1397,8 +1400,7 @@
             n.appendChild(highlightSnippet(h.snippet, query, fuzzy));
             n.addEventListener('click', (e) => {
                 e.stopPropagation();
-                try { localStorage.setItem('crtoLabPanelShown.' + u.id, '1'); } catch {}
-                document.querySelectorAll('#crtoResults .crto-active').forEach(el => el.classList.remove('crto-active'));
+                                document.querySelectorAll('#crtoResults .crto-active').forEach(el => el.classList.remove('crto-active'));
                 n.classList.add('crto-active');
                 navigateToUnit(u);
             });
@@ -1676,7 +1678,7 @@
     // on lab units, fetching + caching the .md on first visit. The click-trick
     // fetcher still uses the attachment anchor in #unitAttachments (which is
     // populated by LW but sits off-screen in the collapsed attachment tray).
-    async function maybeInjectLabPanel() {
+    async function maybeInjectLabPanel(forceShow) {
         if (window.__crtoSuppressLabPanel) return;
         const attachContainer = document.querySelector('#unitAttachments');
         if (!attachContainer) return;
@@ -1708,7 +1710,7 @@
         const cache = loadCache();
         let md = cache[uid]?.lab;
 
-        const hidden = localStorage.getItem('crtoLabPanelShown.' + uid) !== '1';
+        const hidden = !forceShow;
         const panel = document.createElement('div');
         panel.id = 'crto-lab-panel';
         panel.dataset.unitId = uid;
@@ -1726,9 +1728,7 @@
             + 'overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);'
             + 'display:flex;flex-direction:column;';
 
-        // Expanded/collapsed state lives in localStorage so the preference
-        // follows the user across units.
-        function isExpanded() { return localStorage.getItem('crtoLabExpanded') === '1'; }
+        function isExpanded() { return panel.__crtoExpanded === true; }
         function applyExpanded() {
             panel.style.maxHeight = isExpanded() ? 'calc(100vh - 80px)' : '35vh';
         }
@@ -1768,7 +1768,7 @@
             isExpanded() ? 'Collapse lab preview' : 'Expand lab preview to full size',
             () => {
                 const next = !isExpanded();
-                localStorage.setItem('crtoLabExpanded', next ? '1' : '0');
+                panel.__crtoExpanded = next;
                 applyExpanded();
                 expandBtn.setPath(next ? COLLAPSE_PATH : EXPAND_PATH);
                 expandBtn.title = next ? 'Collapse lab preview' : 'Expand lab preview to full size';
@@ -1778,7 +1778,6 @@
             'M6 6l12 12M18 6L6 18',
             'Hide lab preview',
             () => {
-                localStorage.removeItem('crtoLabPanelShown.' + uid);
                 panel.remove();
                 showRestoreChip(target, uid);
             },
@@ -1836,9 +1835,8 @@
         chip.addEventListener('mouseenter', () => { chip.style.background = '#e6e6e6'; });
         chip.addEventListener('mouseleave', () => { chip.style.background = '#f0f0f0'; });
         chip.addEventListener('click', () => {
-            localStorage.setItem('crtoLabPanelShown.' + uid, '1');
             chip.remove();
-            maybeInjectLabPanel();
+            maybeInjectLabPanel(true);
         });
         target.insertBefore(chip, target.firstChild);
     }
