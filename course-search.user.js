@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ZPS Course Search
 // @namespace    zps-course-search
-// @version      0.9.6
+// @version      0.9.8
 // @description  Cross-unit full-text search for ZeroPoint Security course players. Adds a Search tab to the sidebar that finds keywords across every ebook unit, code block, lab markdown, and discussion comments. Clicking a result jumps to the unit with the match highlighted.
 // @author       gregd
 // @match        https://www.zeropointsecurity.co.uk/*
@@ -1925,6 +1925,7 @@
         }
     }
     function installBeforeUnloadBlock() {
+        if (!isSuppressBeforeunloadOn()) return;
         patchEventPrototype(window.Event);
         const iframe = document.querySelector('#playerFrame');
         const iwin = iframe?.contentWindow;
@@ -1933,19 +1934,15 @@
                 console.warn(`${TAG} iframe Event patch failed:`, err);
             }
         }
-        // Null any property-assigned onbeforeunload - those fire separately
-        // from the event listener chain and are not covered by the patch.
-        if (isSuppressBeforeunloadOn()) {
-            try { window.onbeforeunload = null; } catch {}
-            try { if (iwin) iwin.onbeforeunload = null; } catch {}
-        }
+        try { window.onbeforeunload = null; } catch {}
+        try { if (iwin) iwin.onbeforeunload = null; } catch {}
     }
     function watchIframeForBeforeUnload() {
         installBeforeUnloadBlock();
         const iframe = document.querySelector('#playerFrame');
         if (iframe && !iframe.__crtoBuHooked) {
             iframe.__crtoBuHooked = true;
-            iframe.addEventListener('load', installBeforeUnloadBlock);
+            iframe.addEventListener('load', () => { if (isSuppressBeforeunloadOn()) installBeforeUnloadBlock(); });
         }
         // Re-apply on unit change - the iframe's Event prototype usually
         // survives document swaps, but nulling any freshly-set onbeforeunload
@@ -1954,9 +1951,10 @@
             const store = getStore();
             if (typeof store.watch === 'function') {
                 store.watch(s => s.selectedUnitId, () => {
+                    if (!isSuppressBeforeunloadOn()) return;
                     installBeforeUnloadBlock();
-                    setTimeout(installBeforeUnloadBlock, 500);
-                    setTimeout(installBeforeUnloadBlock, 1500);
+                    setTimeout(() => { if (isSuppressBeforeunloadOn()) installBeforeUnloadBlock(); }, 500);
+                    setTimeout(() => { if (isSuppressBeforeunloadOn()) installBeforeUnloadBlock(); }, 1500);
                 });
             }
         } catch {}
