@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ZPS Course Search
 // @namespace    zps-course-search
-// @version      0.10.9
+// @version      0.11.0
 // @description  Cross-unit full-text search for ZeroPoint Security course players. Adds a Search tab to the sidebar that finds keywords across every ebook unit, code block, lab markdown, and discussion comments. Clicking a result jumps to the unit with the match highlighted.
 // @author       gregd
 // @match        https://www.zeropointsecurity.co.uk/*
@@ -963,7 +963,8 @@
           + ' color:rgb(88, 89, 91); padding:8px 12px;'
           + ' margin:0 10px 6px 48px; background:rgb(250, 250, 250);'
           + ' border:1px solid rgb(238, 238, 238); border-radius:4px;'
-          + ' cursor:pointer; transition:border-color 0.12s; }'
+          + ' cursor:pointer; transition:border-color 0.12s;'
+          + ' overflow-wrap:break-word; word-break:break-all; }'
           + '.crto-snip:hover { border-color:rgb(117, 176, 149); }'
           + '.crto-snip.code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace;'
           + ' font-size:12px; line-height:1.45; color:rgb(220, 220, 220);'
