@@ -85,6 +85,10 @@ Indexing runs in three phases: ebook and code content first, then lab markdown, 
 
 Request counts are approximate and depend on the course. Concurrency and delay between requests are configurable at the top of the script.
 
+## Known Limitations
+
+- Rapid clicking through search results can crash the LearnWorlds course player iframe. This is a platform bug in LearnWorlds' `sourceUrlChanged` handler where `contentWindow` becomes null during concurrent iframe navigations. The script debounces clicks (500ms) to mitigate this, but clicking very fast can still trigger it. If the page stops responding, refresh the browser tab.
+
 ## Todo
 
 - Search through highlights

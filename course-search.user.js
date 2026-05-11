@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ZPS Course Search
 // @namespace    zps-course-search
-// @version      0.10.4
+// @version      0.10.9
 // @description  Cross-unit full-text search for ZeroPoint Security course players. Adds a Search tab to the sidebar that finds keywords across every ebook unit, code block, lab markdown, and discussion comments. Clicking a result jumps to the unit with the match highlighted.
 // @author       gregd
 // @match        https://www.zeropointsecurity.co.uk/*
@@ -1111,9 +1111,13 @@
                 });
             }
         });
+        let lastNavTime = 0;
         resultsEl.addEventListener('click', (e) => {
             const q = input.value;
             if (!q || !q.trim()) return;
+            const now = Date.now();
+            if (now - lastNavTime < 500) return;
+            lastNavTime = now;
             if (pendingPoll) pendingPoll();
             // Detach SCORM iframe to suppress beforeunload dialog on navigation.
             // Install a frameUrl bridge so Vue can set src on the replacement.
@@ -1381,7 +1385,11 @@
             title.appendChild(highlightSnippet(u.title || '', query, fuzzy));
             const n = el('div', { attrs: { class: 'crto-unit-row' } }, [badge, title]);
             n.addEventListener('click', () => {
-                                document.querySelectorAll('#crtoResults .crto-active').forEach(el => el.classList.remove('crto-active'));
+                if (/scorm/i.test(u.type || '')) {
+                    window.__crtoForceLabPanel = true;
+                    setTimeout(() => { if (window.__crtoForceLabPanel) maybeInjectLabPanel(true); }, 1000);
+                }
+                document.querySelectorAll('#crtoResults .crto-active').forEach(el => el.classList.remove('crto-active'));
                 n.classList.add('crto-active');
                 navigateToUnit(u);
             });
@@ -1400,7 +1408,11 @@
             n.appendChild(highlightSnippet(h.snippet, query, fuzzy));
             n.addEventListener('click', (e) => {
                 e.stopPropagation();
-                                document.querySelectorAll('#crtoResults .crto-active').forEach(el => el.classList.remove('crto-active'));
+                if (h.hitKind === 'lab') {
+                    window.__crtoForceLabPanel = true;
+                    setTimeout(() => { if (window.__crtoForceLabPanel) maybeInjectLabPanel(true); }, 1000);
+                }
+                document.querySelectorAll('#crtoResults .crto-active').forEach(el => el.classList.remove('crto-active'));
                 n.classList.add('crto-active');
                 navigateToUnit(u);
             });
@@ -1805,6 +1817,7 @@
         }
 
         target.insertBefore(panel, target.firstChild);
+        window.__crtoForceLabPanel = false;
 
         if (!md) {
             body.innerHTML = '<div style="color:#888;font-size:12px;padding:8px;">Loading lab content...</div>';
@@ -1854,7 +1867,7 @@
                 document.querySelector('#crto-lab-restore')?.remove();
                 return;
             }
-            maybeInjectLabPanel();
+            maybeInjectLabPanel(window.__crtoForceLabPanel);
         };
         const tick = () => {
             const attachContainer = document.querySelector('#unitAttachments');
