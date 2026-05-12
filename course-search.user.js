@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         ZPS Course Search
 // @namespace    zps-course-search
-// @version      0.11.2
+// @version      0.11.5
 // @description  Cross-unit full-text search for ZeroPoint Security course players. Adds a Search tab to the sidebar that finds keywords across every ebook unit, code block, lab markdown, and discussion comments. Clicking a result jumps to the unit with the match highlighted.
 // @author       gregd
-// @match        https://www.zeropointsecurity.co.uk/*
+// @match        https://www.zeropointsecurity.co.uk/path-player*
 // @grant        none
 // @run-at       document-idle
 // ==/UserScript==
@@ -1202,7 +1202,7 @@
                         setTimeout(() => highlightDiscuss(attempt), 600);
                         return;
                     }
-                    const postTexts = discussPane?.querySelectorAll('.post-text, .social-comment-text-content, .post-item-content > .post-item-header-container');
+                    const postTexts = discussPane?.querySelectorAll('.post-text, .social-comment-text-content, .post-item-content .learnworlds-main-text-small, .post-item-content > .post-item-header-container');
                     if (discussPane && postTexts?.length && q.trim()) {
                         clearHighlight();
                         const needles = fuzzy
@@ -1225,7 +1225,8 @@
                             doScroll(mark);
                             setTimeout(() => doScroll(mark), 300);
                         } else if (attempt < 8) {
-                            if (scrollContainer.scrollHeight > 0) {
+                            const loadedPosts = discussPane.querySelectorAll('.post-item').length;
+                            if (attempt > 2 && scrollContainer.scrollHeight > 0 && loadedPosts >= 12) {
                                 scrollContainer.scrollTop = scrollContainer.scrollHeight;
                             }
                             setTimeout(() => highlightDiscuss(attempt + 1), 800);
@@ -1299,10 +1300,17 @@
         document.querySelectorAll('ul.-first-col-tabs > li').forEach(li => li.classList.remove('-selected-tab'));
         document.querySelector('#crtoSearchTab').classList.add('-selected-tab');
         document.querySelector('#crtoSearchPanel').style.display = 'block';
+        if (savedResultsScroll) {
+            const results = document.querySelector('#crtoResults');
+            if (results) results.scrollTop = savedResultsScroll;
+        }
         setTimeout(() => document.querySelector('#crtoSearchInput')?.focus(), 50);
     }
 
+    let savedResultsScroll = 0;
     function closeSearch() {
+        const results = document.querySelector('#crtoResults');
+        if (results) savedResultsScroll = results.scrollTop;
         const content = document.querySelector('.-first-col-tabs-content');
         if (content) content.style.overflow = content.dataset.crtoOriginalOverflow || 'auto';
         document.querySelector('#crtoSearchPanel').style.display = 'none';
