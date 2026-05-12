@@ -1300,17 +1300,10 @@
         document.querySelectorAll('ul.-first-col-tabs > li').forEach(li => li.classList.remove('-selected-tab'));
         document.querySelector('#crtoSearchTab').classList.add('-selected-tab');
         document.querySelector('#crtoSearchPanel').style.display = 'block';
-        if (savedResultsScroll) {
-            const results = document.querySelector('#crtoResults');
-            if (results) results.scrollTop = savedResultsScroll;
-        }
         setTimeout(() => document.querySelector('#crtoSearchInput')?.focus(), 50);
     }
 
-    let savedResultsScroll = 0;
     function closeSearch() {
-        const results = document.querySelector('#crtoResults');
-        if (results) savedResultsScroll = results.scrollTop;
         const content = document.querySelector('.-first-col-tabs-content');
         if (content) content.style.overflow = content.dataset.crtoOriginalOverflow || 'auto';
         document.querySelector('#crtoSearchPanel').style.display = 'none';
