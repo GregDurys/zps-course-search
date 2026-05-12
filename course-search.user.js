@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ZPS Course Search
 // @namespace    zps-course-search
-// @version      0.11.0
+// @version      0.11.2
 // @description  Cross-unit full-text search for ZeroPoint Security course players. Adds a Search tab to the sidebar that finds keywords across every ebook unit, code block, lab markdown, and discussion comments. Clicking a result jumps to the unit with the match highlighted.
 // @author       gregd
 // @match        https://www.zeropointsecurity.co.uk/*
@@ -313,6 +313,14 @@
         return null;
     }
 
+    function ensureCMHighlightStyle(doc) {
+        if (doc.querySelector('#crtoCMStyle')) return;
+        const s = doc.createElement('style');
+        s.id = 'crtoCMStyle';
+        s.textContent = `.crto-hl-cm { background:${HL_ORANGE_BG};font-weight:600;border-bottom:2px solid ${HL_ORANGE}; }`;
+        doc.head.appendChild(s);
+    }
+
     function clearHighlight() {
         const ifr = document.querySelector('#playerFrame');
         const iframeDoc = (ifr?.contentWindow) ? ifr.contentDocument : null;
@@ -320,6 +328,9 @@
             const parents = new Set();
             iframeDoc.querySelectorAll('.crto-hl').forEach(m => { parents.add(m.parentNode); m.parentNode.replaceChild(iframeDoc.createTextNode(m.textContent), m); });
             parents.forEach(p => { try { p.normalize(); } catch {} });
+            iframeDoc.querySelectorAll('.CodeMirror').forEach(cmEl => {
+                if (cmEl.CodeMirror) cmEl.CodeMirror.getAllMarks().forEach(m => { if (m.className === 'crto-hl-cm') m.clear(); });
+            });
         }
         const labBody = document.querySelector('#crto-lab-panel .crto-lab-body');
         if (labBody) {
@@ -343,9 +354,8 @@
     function mkMark(doc, text) {
         const mark = doc.createElement('mark');
         mark.className = 'crto-hl';
-        mark.style.cssText = `background:${HL_ORANGE_BG};color:#000;padding:2px 4px;border-radius:3px;`
-            + `box-shadow:0 0 0 3px ${HL_ORANGE_BG},0 0 0 4px ${HL_ORANGE};font-weight:600;`
-            + `user-select:text;-webkit-user-select:text;pointer-events:auto;`;
+        mark.style.cssText = `background:${HL_ORANGE_BG};color:#000;font-weight:600;`
+            + `border-bottom:2px solid ${HL_ORANGE};`;
         mark.textContent = text;
         return mark;
     }
@@ -461,6 +471,29 @@
                 const last = merged[merged.length - 1];
                 if (last && h.idx < last.idx + last.len) last.len = Math.max(last.len, h.idx + h.len - last.idx);
                 else merged.push({ ...h });
+            }
+            const cmEl = n.parentNode.closest?.('.CodeMirror');
+            if (cmEl?.CodeMirror) {
+                ensureCMHighlightStyle(ownerDoc);
+                const cm = cmEl.CodeMirror;
+                const lineEl = n.parentNode.closest?.('.CodeMirror-line');
+                if (lineEl) {
+                    const lineIdx = [...cmEl.querySelectorAll('.CodeMirror-line')].indexOf(lineEl);
+                    if (lineIdx >= 0) {
+                        for (const h of merged) {
+                            const marker = cm.markText(
+                                { line: lineIdx, ch: h.idx },
+                                { line: lineIdx, ch: h.idx + h.len },
+                                { className: 'crto-hl-cm' }
+                            );
+                            if (!firstMark) {
+                                const cmMarks = cmEl.querySelectorAll('.crto-hl-cm');
+                                if (cmMarks.length) firstMark = cmMarks[0];
+                            }
+                        }
+                        continue;
+                    }
+                }
             }
             const parent = n.parentNode; const txt = n.nodeValue;
             const frag = ownerDoc.createDocumentFragment();
