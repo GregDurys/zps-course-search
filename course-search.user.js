@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ZPS Course Search
 // @namespace    zps-course-search
-// @version      0.11.5
+// @version      0.12.2
 // @description  Cross-unit full-text search for ZeroPoint Security course players. Adds a Search tab to the sidebar that finds keywords across every ebook unit, code block, lab markdown, and discussion comments. Clicking a result jumps to the unit with the match highlighted.
 // @author       gregd
 // @match        https://www.zeropointsecurity.co.uk/path-player*
@@ -1202,31 +1202,82 @@
                         setTimeout(() => highlightDiscuss(attempt), 600);
                         return;
                     }
-                    const postTexts = discussPane?.querySelectorAll('.post-text, .social-comment-text-content, .post-item-content .learnworlds-main-text-small, .post-item-content > .post-item-header-container');
+                    const postTexts = (() => {
+                        if (!discussPane) return [];
+                        // Body leaves use the zero-overlap selector verified in
+                        // DEBUG-CLAUDE.md. Author leaves stay included because
+                        // fetchDiscussions() indexes `[author] text`.
+                        const raw = [...discussPane.querySelectorAll([
+                            '.post-item-content > .post-item-header-container .learnworlds-main-text-small.bold',
+                            '.post-item-content > .learnworlds-main-text-small.weglot-exclude:not(.bold)',
+                            '.social-comment-text-content .learnworlds-main-text-very-small.bold',
+                        ].join(','))];
+                        const unique = [...new Set(raw)].filter(el => el.textContent?.trim());
+                        return unique.filter(el => !unique.some(other => other !== el && el.contains(other)));
+                    })();
                     if (discussPane && postTexts?.length && q.trim()) {
                         clearHighlight();
                         const needles = fuzzy
                             ? normChar(q).split(/\s+/).filter(t => t.length > 0)
                             : [normChar(q)];
-                        let mark = null;
-                        let seen = 0;
-                        for (const pt of postTexts) {
-                            const m = markInTarget(pt, needles, fuzzy, {});
-                            if (m) {
-                                if (seen === targetIdx) { mark = m; break; }
-                                pt.querySelectorAll('.crto-hl').forEach(mk => {
-                                    mk.parentNode.replaceChild(document.createTextNode(mk.textContent), mk);
-                                });
-                                try { pt.normalize(); } catch {}
-                                seen++;
+                        const countMatches = target => {
+                            const ownerDoc = target.ownerDocument;
+                            const walker = ownerDoc.createTreeWalker(target, NodeFilter.SHOW_TEXT, {
+                                acceptNode(n) {
+                                    if (!n.nodeValue?.trim()) return NodeFilter.FILTER_REJECT;
+                                    const t = n.parentNode?.tagName;
+                                    if (t === 'SCRIPT' || t === 'STYLE' || t === 'NOSCRIPT') return NodeFilter.FILTER_REJECT;
+                                    return NodeFilter.FILTER_ACCEPT;
+                                },
+                            });
+                            const textNodes = [];
+                            let node;
+                            while ((node = walker.nextNode())) textNodes.push(node);
+                            if (fuzzy) {
+                                let count = 0;
+                                for (const n of textNodes) {
+                                    const normalised = normChar(n.nodeValue);
+                                    for (const needle of needles) {
+                                        let idx = 0;
+                                        while ((idx = normalised.indexOf(needle, idx)) !== -1) {
+                                            count++;
+                                            idx += needle.length;
+                                        }
+                                    }
+                                }
+                                return count;
                             }
+                            const rx = buildPhraseRegex(needles[0], 'g');
+                            if (!rx) return 0;
+                            let combined = '';
+                            let prevBlock = null;
+                            for (let i = 0; i < textNodes.length; i++) {
+                                const curBlock = blockAncestor(textNodes[i]);
+                                if (i > 0 && curBlock !== prevBlock) combined += ' ';
+                                combined += normChar(textNodes[i].nodeValue);
+                                prevBlock = curBlock;
+                            }
+                            return [...combined.matchAll(rx)].length;
+                        };
+                        let mark = null;
+                        let loadedOccurrences = 0;
+                        let targetAttempted = false;
+                        for (const pt of postTexts) {
+                            const matchCount = countMatches(pt);
+                            if (!matchCount) continue;
+                            if (!targetAttempted && loadedOccurrences + matchCount > targetIdx) {
+                                mark = markInTarget(pt, needles, fuzzy, { targetIndex: targetIdx - loadedOccurrences });
+                                targetAttempted = true;
+                                if (mark) break;
+                            }
+                            loadedOccurrences += matchCount;
                         }
                         if (mark) {
                             doScroll(mark);
                             setTimeout(() => doScroll(mark), 300);
                         } else if (attempt < 8) {
                             const loadedPosts = discussPane.querySelectorAll('.post-item').length;
-                            if (attempt > 2 && scrollContainer.scrollHeight > 0 && loadedPosts >= 12) {
+                            if (loadedOccurrences < targetIdx + 1 && attempt > 2 && scrollContainer.scrollHeight > 0 && loadedPosts >= 12) {
                                 scrollContainer.scrollTop = scrollContainer.scrollHeight;
                             }
                             setTimeout(() => highlightDiscuss(attempt + 1), 800);
@@ -1300,7 +1351,20 @@
         document.querySelectorAll('ul.-first-col-tabs > li').forEach(li => li.classList.remove('-selected-tab'));
         document.querySelector('#crtoSearchTab').classList.add('-selected-tab');
         document.querySelector('#crtoSearchPanel').style.display = 'block';
-        setTimeout(() => document.querySelector('#crtoSearchInput')?.focus(), 50);
+        setTimeout(() => {
+            const input = document.querySelector('#crtoSearchInput');
+            if (input) {
+                try { input.focus({ preventScroll: true }); }
+                catch { input.focus(); }
+            }
+            requestAnimationFrame(() => {
+                const active = document.querySelector('#crtoResults .crto-active');
+                if (active) {
+                    try { active.scrollIntoView({ block: 'center', inline: 'nearest' }); }
+                    catch { active.scrollIntoView(); }
+                }
+            });
+        }, 50);
     }
 
     function closeSearch() {

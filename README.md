@@ -88,7 +88,7 @@ Request counts are approximate and depend on the course. Concurrency and delay b
 ## Known Limitations
 
 - Rapid clicking through search results can crash the LearnWorlds course player iframe. This is a platform bug in LearnWorlds' `sourceUrlChanged` handler where `contentWindow` becomes null during concurrent iframe navigations. The script debounces clicks (500ms) to mitigate this, but clicking very fast can still trigger it. If the page stops responding, refresh the browser tab.
-- Discussion comment search and highlighting is best-effort. Clicking a discuss result navigates to the unit and switches to the Discuss tab, but highlighting may not always find the target comment on the first attempt. The Discuss pane loads posts lazily (12 at a time) and some comments are behind collapsed reply threads. The script retries several times but may not reach deeply nested or late-loading comments. Scroll position is not preserved when returning to the Search tab after viewing a discuss result.
+- Discussion comment search loads posts lazily (12 at a time). The script retries several times but may not reach deeply nested or late-loading comments behind collapsed reply threads.
 
 ## Todo
 
