@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ZPS Course Search
 // @namespace    zps-course-search
-// @version      0.12.2
+// @version      0.12.3
 // @description  Cross-unit full-text search for ZeroPoint Security course players. Adds a Search tab to the sidebar that finds keywords across every ebook unit, code block, lab markdown, and discussion comments. Clicking a result jumps to the unit with the match highlighted.
 // @author       gregd
 // @match        https://www.zeropointsecurity.co.uk/path-player*
@@ -941,7 +941,11 @@
         toast.dismiss(crawl.cancel ? 'Index cancelled' : 'Index complete', crawl.cancel ? '#c26' : '#2d7a4a');
     }
 
+    let lastNavTime = 0;
     function navigateToUnit(u) {
+        const now = Date.now();
+        if (now - lastNavTime < 500) return;
+        lastNavTime = now;
         const ch = document.querySelectorAll('#lpathContents > li.lrn-path-chapter')[u.sectionIdx];
         if (!ch) return;
         const link = ch.querySelectorAll('a.lrn-path-cont-link')[u.unitIdx];
@@ -1145,13 +1149,9 @@
                 });
             }
         });
-        let lastNavTime = 0;
         resultsEl.addEventListener('click', (e) => {
             const q = input.value;
             if (!q || !q.trim()) return;
-            const now = Date.now();
-            if (now - lastNavTime < 500) return;
-            lastNavTime = now;
             if (pendingPoll) pendingPoll();
             // Detach SCORM iframe to suppress beforeunload dialog on navigation.
             // Install a frameUrl bridge so Vue can set src on the replacement.
