@@ -87,7 +87,7 @@ Request counts are approximate and depend on the course. Concurrency and delay b
 
 ## Known Limitations
 
-- Rapid clicking through search results can crash the LearnWorlds course player iframe. This is a platform bug in LearnWorlds' `sourceUrlChanged` handler where `contentWindow` becomes null during concurrent iframe navigations. The script debounces clicks (500ms) to mitigate this, but clicking very fast can still trigger it. If the page stops responding, refresh the browser tab.
+- Rapid clicking through search results is throttled (500ms) to prevent a LearnWorlds course player crash. If the page stops responding, refresh the browser tab.
 - Discussion comment search loads posts lazily (12 at a time). The script retries several times but may not reach deeply nested or late-loading comments behind collapsed reply threads.
 
 ## Todo

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ZPS Course Search
 // @namespace    zps-course-search
-// @version      0.12.3
+// @version      0.13.2
 // @description  Cross-unit full-text search for ZeroPoint Security course players. Adds a Search tab to the sidebar that finds keywords across every ebook unit, code block, lab markdown, and discussion comments. Clicking a result jumps to the unit with the match highlighted.
 // @author       gregd
 // @match        https://www.zeropointsecurity.co.uk/path-player*
@@ -79,7 +79,7 @@
     // order rather than pageState-key order so kindIndex from search lines
     // up with the iframe's <pre> walker. Old v3 caches are ignored - users
     // see a "Index" prompt on next search.
-    const CACHE_PREFIX = 'crtoSearchIndex.v5.';
+    const CACHE_PREFIX = 'crtoSearchIndex.v7.';
     const LEGACY_CACHE_KEY = 'crtoSearchIndex.v2';
 
     // ---- User-configurable indexing settings ----
@@ -607,6 +607,7 @@
                 url: vm.unitRedirectLink || null,
                 body: cache[id]?.body || null,
                 code: cache[id]?.code || null,
+                codeOrder: cache[id]?.codeOrder || 'none',
                 lab: cache[id]?.lab || null,
                 discuss: cache[id]?.discuss || null,
             });
@@ -624,7 +625,7 @@
             out.push({ kind: 'section', text: u.section || '' });
         }
         if (scope.content) out.push({ kind: 'body', text: u.body || '' });
-        if (scope.code) out.push({ kind: 'code', text: u.code || '' });
+        if (scope.code && u.codeOrder === 'dom-marker') out.push({ kind: 'code', text: u.code || '' });
         if (scope.lab && u.lab) out.push({ kind: 'lab', text: u.lab });
         if (scope.discuss && u.discuss) out.push({ kind: 'discuss', text: u.discuss });
         return out;
@@ -692,7 +693,7 @@
                 { kind: 'title', text: u.title || '' },
                 { kind: 'section', text: u.section || '' },
                 { kind: 'body', text: u.body || '' },
-                { kind: 'code', text: u.code || '' },
+                ...(u.codeOrder === 'dom-marker' ? [{ kind: 'code', text: u.code || '' }] : []),
                 ...(u.lab ? [{ kind: 'lab', text: u.lab }] : []),
                 ...(u.discuss ? [{ kind: 'discuss', text: u.discuss }] : []),
             ];
@@ -730,33 +731,35 @@
         // in DOM order, look up each one's `id` in pageState.components,
         // and concatenate the `code` field.
         let code = '';
+        let codeOrder = 'none';
         const m = html.match(/var\s+pageState\s*=\s*(\{[\s\S]+?\});\s*(?:var\s|\/\/|<\/script)/);
         if (m) {
             try {
                 const ps = JSON.parse(m[1]);
                 const components = ps.components || {};
+                const componentCodeCount = Object.values(components).filter(c => typeof c?.code === 'string').length;
                 const codeBlockEls = doc.querySelectorAll('[data-node-type="code-block"]');
                 const codes = [];
                 for (const el of codeBlockEls) {
                     const c = components[el.id];
                     if (c && typeof c.code === 'string') codes.push(c.code);
                 }
-                // Fallback: if no code-block markers found (older page templates
-                // or unusual structure), fall back to the v3 walker so we don't
-                // emit an empty code field.
-                if (codes.length === 0) {
-                    function walk(o, key) {
-                        if (o == null) return;
-                        if (typeof o === 'string') { if (key === 'code') codes.push(o); return; }
-                        if (Array.isArray(o)) { for (const v of o) walk(v, key); return; }
-                        if (typeof o === 'object') for (const [k, v] of Object.entries(o)) walk(v, k);
-                    }
-                    walk(ps, '');
+                if (codes.length && codes.length === codeBlockEls.length) {
+                    code = codes.join('\n').trim();
+                    codeOrder = 'dom-marker';
+                } else if (codes.length) {
+                    console.warn(`${TAG} partial code extraction: ${codes.length}/${codeBlockEls.length} markers mapped`, { url });
+                } else if (componentCodeCount) {
+                    console.warn(`${TAG} code extraction skipped: no DOM-ordered markers matched`, {
+                        url, markerCount: codeBlockEls.length, componentCodeCount,
+                        sampleIds: Object.keys(components).slice(0, 5),
+                    });
                 }
-                code = codes.join('\n').trim();
-            } catch {}
+            } catch (e) {
+                console.warn(`${TAG} pageState parse failed`, { url, error: String(e) });
+            }
         }
-        return { body, code };
+        return { body, code, codeOrder };
     }
 
     function showToast() {
@@ -865,11 +868,11 @@
             for (const u of q) {
                 if (crawl.cancel) return;
                 try {
-                    const [{ body, code }, discuss] = await Promise.all([
+                    const [{ body, code, codeOrder }, discuss] = await Promise.all([
                         fetchUnitData(u.url),
                         fetchDiscussions(u.id),
                     ]);
-                    cache[u.id] = { body, code, discuss, title: u.title, ts: Date.now() };
+                    cache[u.id] = { body, code, codeOrder, discuss, title: u.title, ts: Date.now() };
                     if (done % 10 === 0) saveCache(cache);
                 } catch { failed++; }
                 done++;
@@ -882,11 +885,17 @@
             for (const u of q) {
                 if (crawl.cancel) return;
                 try {
-                    const [lab, discuss] = await Promise.all([
+                    const [rawLab, discuss] = await Promise.all([
                         fetchLabMdDirect(u.id, labFileMap[u.id]),
                         fetchDiscussions(u.id),
                     ]);
-                    cache[u.id] = { lab: lab || null, discuss, title: u.title, ts: Date.now() };
+                    let lab = null;
+                    if (rawLab) {
+                        const tmp = document.createElement('div');
+                        tmp.innerHTML = renderMarkdown(rawLab);
+                        lab = tmp.textContent.replace(/\s+/g, ' ').trim();
+                    }
+                    cache[u.id] = { lab, labRaw: rawLab || null, discuss, title: u.title, ts: Date.now() };
                     if (done % 10 === 0) saveCache(cache);
                 } catch { failed++; }
                 done++;
@@ -1814,12 +1823,16 @@
         }
         const existingChip = target.querySelector('#crto-lab-restore');
         if (existingChip) {
-            if (existingChip.dataset.unitId === uid) return;
-            existingChip.remove();
+            if (existingChip.dataset.unitId === uid) {
+                if (!forceShow) return;
+                existingChip.remove();
+            } else {
+                existingChip.remove();
+            }
         }
 
         const cache = loadCache();
-        let md = cache[uid]?.lab;
+        let md = cache[uid]?.labRaw;
 
         const hidden = !forceShow;
         const panel = document.createElement('div');
@@ -1928,7 +1941,10 @@
                 return;
             }
             if (!cache[uid]) cache[uid] = {};
-            cache[uid].lab = md;
+            const tmpLabDiv = document.createElement('div');
+            tmpLabDiv.innerHTML = renderMarkdown(md);
+            cache[uid].lab = tmpLabDiv.textContent.replace(/\s+/g, ' ').trim();
+            cache[uid].labRaw = md;
             cache[uid].title = store.state.unitStates[uid].unitTitle;
             cache[uid].ts = Date.now();
             saveCache(cache);
