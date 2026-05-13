@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ZPS Course Search
 // @namespace    zps-course-search
-// @version      0.13.2
+// @version      0.15.5
 // @description  Cross-unit full-text search for ZeroPoint Security course players. Adds a Search tab to the sidebar that finds keywords across every ebook unit, code block, lab markdown, and discussion comments. Clicking a result jumps to the unit with the match highlighted.
 // @author       gregd
 // @match        https://www.zeropointsecurity.co.uk/path-player*
@@ -75,11 +75,10 @@
     'use strict';
 
     const TAG = '[CRTOSearch]';
-    // Cache schema versioning. v5 (0.9.0) adds discuss field (Discuss tab comments).
-    // order rather than pageState-key order so kindIndex from search lines
-    // up with the iframe's <pre> walker. Old v3 caches are ignored - users
-    // see a "Index" prompt on next search.
-    const CACHE_PREFIX = 'crtoSearchIndex.v7.';
+    // Cache schema versioning. v8 (0.15.0) adds codeBlockRanges for
+    // deterministic fuzzy code block targeting. Bumping the prefix
+    // forces a re-index so all entries have the new metadata.
+    const CACHE_PREFIX = 'crtoSearchIndex.v8.';
     const LEGACY_CACHE_KEY = 'crtoSearchIndex.v2';
 
     // ---- User-configurable indexing settings ----
@@ -168,7 +167,7 @@
         watchForRerender();
         watchLabAttachments();
         watchIframeForBeforeUnload();
-        console.log(`${TAG} v0.9.1 initialised (course: ${getCourseId()})`);
+        console.log(`${TAG} v0.15.5 initialised (course: ${getCourseId()})`);
     }
 
     const getStore = () => window.coursePlayerVue.$store;
@@ -321,7 +320,14 @@
         doc.head.appendChild(s);
     }
 
+    let pendingCMScroll = null;
+    let cmScrollGen = 0;
+    function cancelPendingCMScroll() {
+        if (pendingCMScroll) { clearTimeout(pendingCMScroll.tid); pendingCMScroll = null; }
+    }
+
     function clearHighlight() {
+        cancelPendingCMScroll();
         const ifr = document.querySelector('#playerFrame');
         const iframeDoc = (ifr?.contentWindow) ? ifr.contentDocument : null;
         if (iframeDoc) {
@@ -384,6 +390,39 @@
         const ownerDoc = target.nodeType === 9 ? target : target.ownerDocument;
         const root = target.nodeType === 9 ? target.body : target;
         if (!root) return null;
+        if (fuzzy && root.CodeMirror) {
+            ensureCMHighlightStyle(ownerDoc);
+            const cm = root.CodeMirror;
+            const lineCount = cm.lineCount();
+            const allHits = [];
+            for (let lineNo = 0; lineNo < lineCount; lineNo++) {
+                const lineText = normChar(cm.getLine(lineNo));
+                const lineHits = [];
+                for (const needle of needles) {
+                    let idx = 0;
+                    while ((idx = lineText.indexOf(needle, idx)) !== -1) {
+                        lineHits.push({ idx, len: needle.length });
+                        idx += needle.length;
+                    }
+                }
+                if (lineHits.length) {
+                    lineHits.sort((a, b) => a.idx - b.idx);
+                    const merged = [];
+                    for (const h of lineHits) {
+                        const last = merged[merged.length - 1];
+                        if (last && h.idx < last.idx + last.len) last.len = Math.max(last.len, h.idx + h.len - last.idx);
+                        else merged.push({ ...h });
+                    }
+                    for (const h of merged) allHits.push({ line: lineNo, ch: h.idx, len: h.len });
+                }
+            }
+            let marked = false;
+            for (const h of allHits) {
+                cm.markText({ line: h.line, ch: h.ch }, { line: h.line, ch: h.ch + h.len }, { className: 'crto-hl-cm' });
+                marked = true;
+            }
+            return marked ? root : null;
+        }
         const walker = ownerDoc.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
             acceptNode(n) {
                 if (!n.nodeValue?.trim()) return NodeFilter.FILTER_REJECT;
@@ -480,10 +519,19 @@
                 if (lineEl) {
                     const lineIdx = [...cmEl.querySelectorAll('.CodeMirror-line')].indexOf(lineEl);
                     if (lineIdx >= 0) {
+                        let chOffset = 0, foundNode = false;
+                        const lw = ownerDoc.createTreeWalker(lineEl, NodeFilter.SHOW_TEXT);
+                        let tn;
+                        while ((tn = lw.nextNode())) {
+                            if (tn === n) { foundNode = true; break; }
+                            chOffset += tn.nodeValue.length;
+                        }
+                        if (!foundNode) continue;
                         for (const h of merged) {
+                            const ch = chOffset + h.idx;
                             const marker = cm.markText(
-                                { line: lineIdx, ch: h.idx },
-                                { line: lineIdx, ch: h.idx + h.len },
+                                { line: lineIdx, ch },
+                                { line: lineIdx, ch: ch + h.len },
                                 { className: 'crto-hl-cm' }
                             );
                             if (!firstMark) {
@@ -529,45 +577,91 @@
         const _ifr = document.querySelector('#playerFrame');
         const iframeDoc = (_ifr?.contentWindow) ? _ifr.contentDocument : null;
         if (iframeDoc?.body) {
-            // The lab panel handles 'lab' kind; it has no counterpart in the
-            // iframe, so skip iframe marking when the hit was in a lab field.
             if (opts.targetKind !== 'lab') {
-                const m = markInTarget(iframeDoc, needles, fuzzy, opts);
-                if (m) marks.push(m);
+                if (fuzzy && opts.targetKind === 'code') {
+                    const codeBlocks = [...iframeDoc.querySelectorAll('.CodeMirror')];
+                    let targetBlock = null;
+                    const blockIdx = opts.targetIndex;
+                    const cmText = (b) => b.CodeMirror ? normChar(b.CodeMirror.getValue()) : normChar(b.textContent);
+                    if (Number.isInteger(blockIdx) && blockIdx >= 0 && blockIdx < codeBlocks.length) {
+                        const candidate = codeBlocks[blockIdx];
+                        if (needles.some(n => cmText(candidate).includes(n))) targetBlock = candidate;
+                    }
+                    if (!targetBlock) {
+                        let bestScore = 0;
+                        for (const block of codeBlocks) {
+                            const text = cmText(block);
+                            const score = needles.filter(n => text.includes(n)).length;
+                            if (score > bestScore) { bestScore = score; targetBlock = block; }
+                        }
+                    }
+                    if (targetBlock) {
+                        const cm = markInTarget(targetBlock, needles, fuzzy, { targetIndex: 0 });
+                        if (cm) deferCMScroll(targetBlock);
+                        else {
+                            const m = markInTarget(iframeDoc, needles, fuzzy, opts);
+                            if (m) marks.push(m);
+                        }
+                    } else {
+                        const m = markInTarget(iframeDoc, needles, fuzzy, opts);
+                        if (m) marks.push(m);
+                    }
+                } else {
+                    const m = markInTarget(iframeDoc, needles, fuzzy, opts);
+                    if (m) marks.push(m);
+                }
             }
         }
         const labBody = document.querySelector('#crto-lab-panel .crto-lab-body');
         if (labBody) {
-            // For the lab panel, ignore targetKind filtering (lab markdown
-            // mixes prose and code in one document).
             const labOpts = { ...opts, targetKind: null };
             const m = markInTarget(labBody, needles, fuzzy, labOpts);
             if (m) marks.push(m);
         }
-        if (marks.length === 0) return false;
-        // Prefer scrolling to the lab panel mark when present (it's the more
-        // useful context for lab hits), otherwise the iframe mark.
-        const target = marks[marks.length - 1];
-        doScroll(target);
-        // Single re-scroll after 600ms to handle reflow, then stop.
-        // Previous approach (300/800/1500ms) fought user scrolling.
-        const reScrollId = setTimeout(() => {
-            const _ri = document.querySelector('#playerFrame');
-            const m = document.querySelector('#crto-lab-panel .crto-hl') || ((_ri?.contentWindow) ? _ri.contentDocument?.querySelector('.crto-hl') : null);
-            if (m) doScroll(m);
-        }, 600);
-        // Cancel even the single re-scroll if user scrolls anywhere
-        const cancelReScroll = () => { clearTimeout(reScrollId); scrollTargets.forEach(el => el.removeEventListener('wheel', cancelReScroll)); };
+        if (marks.length === 0 && !pendingCMScroll) return false;
+        if (marks.length > 0) {
+            const target = marks[marks.length - 1];
+            doScroll(target);
+        }
+        setupScrollCancel();
+        return true;
+    }
+
+    function deferCMScroll(block) {
+        cancelPendingCMScroll();
+        const gen = ++cmScrollGen;
+        let attempts = 0;
+        const maxAttempts = 10;
+        const poll = () => {
+            if (gen !== cmScrollGen) return;
+            const m = block.querySelector('.crto-hl-cm');
+            if (m && m.isConnected) {
+                pendingCMScroll = null;
+                doScroll(m);
+                return;
+            }
+            if (++attempts >= maxAttempts) { pendingCMScroll = null; return; }
+            pendingCMScroll = { tid: setTimeout(poll, 150) };
+        };
+        pendingCMScroll = { tid: setTimeout(poll, 50) };
+    }
+
+    function setupScrollCancel() {
+        const gen = cmScrollGen;
         const _si = document.querySelector('#playerFrame');
         const ifrDoc = (_si?.contentWindow) ? _si.contentDocument : null;
         const scrollTargets = [document, ifrDoc, document.querySelector('#crto-lab-panel')].filter(Boolean);
-        scrollTargets.forEach(el => el.addEventListener('wheel', cancelReScroll, { passive: true, once: true }));
-        setTimeout(cancelReScroll, 1500);
-        return true;
+        const cancel = () => {
+            if (gen === cmScrollGen) cancelPendingCMScroll();
+            scrollTargets.forEach(el => el.removeEventListener('wheel', cancel));
+        };
+        scrollTargets.forEach(el => el.addEventListener('wheel', cancel, { passive: true, once: true }));
+        setTimeout(cancel, 2500);
     }
 
     let pendingPoll = null;
     function scheduleHighlight(query, opts = {}, maxMs = 8000) {
+        cancelPendingCMScroll();
         if (pendingPoll) pendingPoll();
         if (!query || !query.trim()) return;
         const t0 = performance.now();
@@ -608,6 +702,7 @@
                 body: cache[id]?.body || null,
                 code: cache[id]?.code || null,
                 codeOrder: cache[id]?.codeOrder || 'none',
+                codeBlockRanges: cache[id]?.codeBlockRanges || null,
                 lab: cache[id]?.lab || null,
                 discuss: cache[id]?.discuss || null,
             });
@@ -625,7 +720,7 @@
             out.push({ kind: 'section', text: u.section || '' });
         }
         if (scope.content) out.push({ kind: 'body', text: u.body || '' });
-        if (scope.code && u.codeOrder === 'dom-marker') out.push({ kind: 'code', text: u.code || '' });
+        if (scope.code && u.codeOrder === 'dom-marker') out.push({ kind: 'code', text: u.code || '', codeBlockRanges: u.codeBlockRanges || null });
         if (scope.lab && u.lab) out.push({ kind: 'lab', text: u.lab });
         if (scope.discuss && u.discuss) out.push({ kind: 'discuss', text: u.discuss });
         return out;
@@ -660,10 +755,16 @@
         return out;
     }
 
-    // Fuzzy mode keeps one hit per unit - the matched tokens are then all
-    // highlighted in the iframe anyway, so per-occurrence sidebar rows add
-    // noise without benefit. Returns the same shape as exactHits for uniform
-    // downstream handling.
+    function blockIndexForOffset(ranges, offset) {
+        if (!Array.isArray(ranges) || ranges.length === 0) return 0;
+        const idx = ranges.findIndex(r => offset >= r.start && offset < r.end);
+        if (idx < 0) {
+            console.warn(`${TAG} blockIndexForOffset: offset ${offset} outside all ranges`, ranges);
+            return null;
+        }
+        return idx;
+    }
+
     function fuzzyHits(q, fields) {
         const tokens = normChar(q).split(/\s+/).filter(t => t.length > 0);
         if (tokens.length === 0) return [];
@@ -673,6 +774,17 @@
             for (let i = 0; i < fields.length; i++) {
                 if (fields[i].kind !== kind) continue;
                 const f = normChar(fields[i].text || '');
+                if (kind === 'code' && Array.isArray(fields[i].codeBlockRanges)) {
+                    for (let bi = 0; bi < fields[i].codeBlockRanges.length; bi++) {
+                        const r = fields[i].codeBlockRanges[bi];
+                        const blockText = f.slice(r.start, r.end);
+                        if (tokens.every(t => blockText.includes(t))) {
+                            const idx = blockText.indexOf(tokens[0]);
+                            return [{ fieldIdx: i, idx: r.start + idx, len: tokens[0].length, kind, kindIndex: bi }];
+                        }
+                    }
+                    continue;
+                }
                 for (const t of tokens) {
                     const idx = f.indexOf(t);
                     if (idx !== -1) return [{ fieldIdx: i, idx, len: t.length, kind, kindIndex: 0 }];
@@ -693,7 +805,7 @@
                 { kind: 'title', text: u.title || '' },
                 { kind: 'section', text: u.section || '' },
                 { kind: 'body', text: u.body || '' },
-                ...(u.codeOrder === 'dom-marker' ? [{ kind: 'code', text: u.code || '' }] : []),
+                ...(u.codeOrder === 'dom-marker' ? [{ kind: 'code', text: u.code || '', codeBlockRanges: u.codeBlockRanges || null }] : []),
                 ...(u.lab ? [{ kind: 'lab', text: u.lab }] : []),
                 ...(u.discuss ? [{ kind: 'discuss', text: u.discuss }] : []),
             ];
@@ -732,6 +844,7 @@
         // and concatenate the `code` field.
         let code = '';
         let codeOrder = 'none';
+        let codeBlockRanges = null;
         const m = html.match(/var\s+pageState\s*=\s*(\{[\s\S]+?\});\s*(?:var\s|\/\/|<\/script)/);
         if (m) {
             try {
@@ -740,13 +853,21 @@
                 const componentCodeCount = Object.values(components).filter(c => typeof c?.code === 'string').length;
                 const codeBlockEls = doc.querySelectorAll('[data-node-type="code-block"]');
                 const codes = [];
+                const ranges = [];
+                let offset = 0;
                 for (const el of codeBlockEls) {
                     const c = components[el.id];
-                    if (c && typeof c.code === 'string') codes.push(c.code);
+                    if (c && typeof c.code === 'string') {
+                        if (codes.length > 0) offset++;
+                        ranges.push({ start: offset, end: offset + c.code.length });
+                        codes.push(c.code);
+                        offset += c.code.length;
+                    }
                 }
                 if (codes.length && codes.length === codeBlockEls.length) {
-                    code = codes.join('\n').trim();
+                    code = codes.join('\n');
                     codeOrder = 'dom-marker';
+                    codeBlockRanges = ranges;
                 } else if (codes.length) {
                     console.warn(`${TAG} partial code extraction: ${codes.length}/${codeBlockEls.length} markers mapped`, { url });
                 } else if (componentCodeCount) {
@@ -759,7 +880,7 @@
                 console.warn(`${TAG} pageState parse failed`, { url, error: String(e) });
             }
         }
-        return { body, code, codeOrder };
+        return { body, code, codeOrder, codeBlockRanges };
     }
 
     function showToast() {
@@ -809,6 +930,115 @@
             }
             return parts.join('\n');
         } catch { return ''; }
+    }
+
+    function cleanApiHtml(html) {
+        return (html || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+
+    function postsArrayFromApi(data) {
+        const posts = data?.posts || [];
+        return Array.isArray(posts) ? posts : Object.values(posts);
+    }
+
+    async function fetchDiscussionPosts(unitId) {
+        try {
+            const courseSlug = getCourseId();
+            const url = `/api/posts?context=${encodeURIComponent(unitId)}`
+                + `&parent_context=${encodeURIComponent(courseSlug)}`
+                + '&sort=modified_desc&getPinnedPosts=true&N=500';
+            const resp = await fetch(url, { credentials: 'same-origin' });
+            if (!resp.ok) return [];
+            const data = await resp.json();
+            if (data.success === false) return [];
+            return postsArrayFromApi(data);
+        } catch (e) {
+            console.warn(`${TAG} discuss API fetch failed`, { unitId, error: String(e) });
+            return [];
+        }
+    }
+
+    function flattenDiscussionApiRecords(posts) {
+        const records = [];
+        for (const post of postsArrayFromApi({ posts })) {
+            const postId = post.id != null ? String(post.id) : '';
+            const author = post.user_id?.username || '';
+            const text = cleanApiHtml(post.text);
+            if (postId && text) {
+                records.push({ kind: 'post', id: postId, postId, text: `[${author}] ${text}` });
+            }
+            for (const comment of (post.comments || [])) {
+                const commentId = comment.comment_id != null ? String(comment.comment_id) : '';
+                const cAuthor = comment.user_id?.username || '';
+                const cText = cleanApiHtml(comment.text);
+                if (commentId && cText) {
+                    records.push({ kind: 'comment', id: commentId, postId, text: `[${cAuthor}] ${cText}` });
+                }
+            }
+        }
+        return records;
+    }
+
+    function countTextMatches(text, needles, isFuzzy) {
+        const normalised = normChar(text);
+        if (isFuzzy) {
+            let count = 0;
+            for (const needle of needles) {
+                let idx = 0;
+                while ((idx = normalised.indexOf(needle, idx)) !== -1) { count++; idx += needle.length; }
+            }
+            return count;
+        }
+        const rx = buildPhraseRegex(needles[0], 'g');
+        return rx ? [...normalised.matchAll(rx)].length : 0;
+    }
+
+    function locateDiscussionHit(posts, query, targetIdx, isFuzzy) {
+        const needles = isFuzzy
+            ? normChar(query).split(/\s+/).filter(t => t.length > 0)
+            : [normChar(query)];
+        if (!needles.length) return null;
+        let seen = 0;
+        for (const record of flattenDiscussionApiRecords(posts)) {
+            const count = countTextMatches(record.text, needles, isFuzzy);
+            if (!count) continue;
+            if (seen + count > targetIdx) {
+                return { ...record, targetIndex: isFuzzy ? 0 : targetIdx - seen, needles };
+            }
+            seen += count;
+        }
+        return null;
+    }
+
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+    async function waitForDiscussElement(locator, maxMs = 8000) {
+        const start = performance.now();
+        const expanded = new WeakSet();
+        let scrollAttempts = 0;
+        while (performance.now() - start < maxMs) {
+            const discussPane = document.querySelector('.social-app');
+            const scrollContainer = discussPane?.querySelector('.social-content-scroll') || discussPane;
+            const target = document.getElementById(locator.id);
+            if (target) return target;
+            const post = locator.postId ? document.getElementById(locator.postId) : null;
+            if (post && locator.kind === 'comment') {
+                post.querySelectorAll('.show-all-btn').forEach(btn => {
+                    if (expanded.has(btn)) return;
+                    expanded.add(btn);
+                    btn.click();
+                });
+            }
+            if (post) {
+                try { post.scrollIntoView({ block: 'center', inline: 'nearest' }); }
+                catch { post.scrollIntoView(); }
+            } else if (scrollContainer?.scrollHeight && scrollAttempts < 3) {
+                scrollContainer.scrollTop = scrollContainer.scrollHeight;
+                scrollAttempts++;
+            }
+            await sleep(800);
+        }
+        return null;
     }
 
     async function fetchLabMdDirect(unitId, filePath) {
@@ -868,11 +1098,11 @@
             for (const u of q) {
                 if (crawl.cancel) return;
                 try {
-                    const [{ body, code, codeOrder }, discuss] = await Promise.all([
+                    const [{ body, code, codeOrder, codeBlockRanges }, discuss] = await Promise.all([
                         fetchUnitData(u.url),
                         fetchDiscussions(u.id),
                     ]);
-                    cache[u.id] = { body, code, codeOrder, discuss, title: u.title, ts: Date.now() };
+                    cache[u.id] = { body, code, codeOrder, codeBlockRanges, discuss, title: u.title, ts: Date.now() };
                     if (done % 10 === 0) saveCache(cache);
                 } catch { failed++; }
                 done++;
@@ -950,11 +1180,12 @@
         toast.dismiss(crawl.cancel ? 'Index cancelled' : 'Index complete', crawl.cancel ? '#c26' : '#2d7a4a');
     }
 
-    let lastNavTime = 0;
+    let lastNavTime = 0, lastNavUnit = null;
     function navigateToUnit(u) {
         const now = Date.now();
-        if (now - lastNavTime < 500) return;
+        if (now - lastNavTime < 500 && lastNavUnit === u.id) return;
         lastNavTime = now;
+        lastNavUnit = u.id;
         const ch = document.querySelectorAll('#lpathContents > li.lrn-path-chapter')[u.sectionIdx];
         if (!ch) return;
         const link = ch.querySelectorAll('a.lrn-path-cont-link')[u.unitIdx];
@@ -1185,121 +1416,36 @@
             const snip = e.target.closest?.('[data-hit-kind]');
             if (snip?.dataset.hitKind === 'discuss') {
                 const targetIdx = +(snip.dataset.hitKindIndex || 0);
+                const unitId = snip.dataset.unitId;
                 closeSearch();
-                setTimeout(() => {
-                    const s = findLegacySkin();
-                    if (s) s.activeTab = 'discussion';
-                }, 600);
-                // Highlight in the Discuss pane with scroll-to-load retry.
-                // Posts load lazily (12 at a time); if the match is beyond the
-                // first page, scroll the container to trigger infinite scroll,
-                // then retry until found or attempts exhausted.
-                const expandedSet = new Set();
-                const highlightDiscuss = (attempt = 0) => {
-                    const discussPane = document.querySelector('.social-app');
-                    const scrollContainer = discussPane?.querySelector('.social-content-scroll') || discussPane;
-                    // Expand collapsed reply threads ("View all (N)" buttons)
-                    const showAllBtns = discussPane?.querySelectorAll('.show-all-btn') || [];
-                    let newExpansions = 0;
-                    showAllBtns.forEach(btn => {
-                        if (expandedSet.has(btn)) return;
-                        btn.click();
-                        expandedSet.add(btn);
-                        newExpansions++;
-                    });
-                    if (newExpansions > 0) {
-                        setTimeout(() => highlightDiscuss(attempt), 600);
+                setTimeout(() => setVueActiveTab('discussion'), 600);
+                (async () => {
+                    const posts = await fetchDiscussionPosts(unitId);
+                    const locator = locateDiscussionHit(posts, q, targetIdx, fuzzy);
+                    if (!locator) {
+                        console.warn(`${TAG} discuss hit not found in API response`, { unitId, targetIdx });
                         return;
                     }
-                    const postTexts = (() => {
-                        if (!discussPane) return [];
-                        // Body leaves use the zero-overlap selector verified in
-                        // DEBUG-CLAUDE.md. Author leaves stay included because
-                        // fetchDiscussions() indexes `[author] text`.
-                        const raw = [...discussPane.querySelectorAll([
-                            '.post-item-content > .post-item-header-container .learnworlds-main-text-small.bold',
-                            '.post-item-content > .learnworlds-main-text-small.weglot-exclude:not(.bold)',
-                            '.social-comment-text-content .learnworlds-main-text-very-small.bold',
-                        ].join(','))];
-                        const unique = [...new Set(raw)].filter(el => el.textContent?.trim());
-                        return unique.filter(el => !unique.some(other => other !== el && el.contains(other)));
-                    })();
-                    if (discussPane && postTexts?.length && q.trim()) {
-                        clearHighlight();
-                        const needles = fuzzy
-                            ? normChar(q).split(/\s+/).filter(t => t.length > 0)
-                            : [normChar(q)];
-                        const countMatches = target => {
-                            const ownerDoc = target.ownerDocument;
-                            const walker = ownerDoc.createTreeWalker(target, NodeFilter.SHOW_TEXT, {
-                                acceptNode(n) {
-                                    if (!n.nodeValue?.trim()) return NodeFilter.FILTER_REJECT;
-                                    const t = n.parentNode?.tagName;
-                                    if (t === 'SCRIPT' || t === 'STYLE' || t === 'NOSCRIPT') return NodeFilter.FILTER_REJECT;
-                                    return NodeFilter.FILTER_ACCEPT;
-                                },
-                            });
-                            const textNodes = [];
-                            let node;
-                            while ((node = walker.nextNode())) textNodes.push(node);
-                            if (fuzzy) {
-                                let count = 0;
-                                for (const n of textNodes) {
-                                    const normalised = normChar(n.nodeValue);
-                                    for (const needle of needles) {
-                                        let idx = 0;
-                                        while ((idx = normalised.indexOf(needle, idx)) !== -1) {
-                                            count++;
-                                            idx += needle.length;
-                                        }
-                                    }
-                                }
-                                return count;
-                            }
-                            const rx = buildPhraseRegex(needles[0], 'g');
-                            if (!rx) return 0;
-                            let combined = '';
-                            let prevBlock = null;
-                            for (let i = 0; i < textNodes.length; i++) {
-                                const curBlock = blockAncestor(textNodes[i]);
-                                if (i > 0 && curBlock !== prevBlock) combined += ' ';
-                                combined += normChar(textNodes[i].nodeValue);
-                                prevBlock = curBlock;
-                            }
-                            return [...combined.matchAll(rx)].length;
-                        };
-                        let mark = null;
-                        let loadedOccurrences = 0;
-                        let targetAttempted = false;
-                        for (const pt of postTexts) {
-                            const matchCount = countMatches(pt);
-                            if (!matchCount) continue;
-                            if (!targetAttempted && loadedOccurrences + matchCount > targetIdx) {
-                                mark = markInTarget(pt, needles, fuzzy, { targetIndex: targetIdx - loadedOccurrences });
-                                targetAttempted = true;
-                                if (mark) break;
-                            }
-                            loadedOccurrences += matchCount;
-                        }
-                        if (mark) {
-                            doScroll(mark);
-                            setTimeout(() => doScroll(mark), 300);
-                        } else if (attempt < 8) {
-                            const loadedPosts = discussPane.querySelectorAll('.post-item').length;
-                            if (loadedOccurrences < targetIdx + 1 && attempt > 2 && scrollContainer.scrollHeight > 0 && loadedPosts >= 12) {
-                                scrollContainer.scrollTop = scrollContainer.scrollHeight;
-                            }
-                            setTimeout(() => highlightDiscuss(attempt + 1), 800);
-                        }
-                    } else if (attempt < 10) {
-                        setTimeout(() => highlightDiscuss(attempt + 1), 600);
+                    await sleep(800);
+                    setVueActiveTab('discussion');
+                    const targetEl = await waitForDiscussElement(locator);
+                    if (!targetEl) {
+                        console.warn(`${TAG} discuss DOM target not loaded`, locator);
+                        return;
                     }
-                };
-                setTimeout(highlightDiscuss, 800);
+                    clearHighlight();
+                    const markTarget = targetEl.querySelector('.learnworlds-main-text-small.weglot-exclude:not(.bold)') || targetEl;
+                    const mark = markInTarget(markTarget, locator.needles, fuzzy, { targetIndex: locator.targetIndex });
+                    if (mark) {
+                        doScroll(mark);
+                        setTimeout(() => doScroll(mark), 300);
+                    }
+                })();
                 return;
             }
+            const rawIdx = snip?.dataset.hitKindIndex;
             const opts = snip
-                ? { targetKind: snip.dataset.hitKind, targetIndex: +(snip.dataset.hitKindIndex || 0) }
+                ? { targetKind: snip.dataset.hitKind, targetIndex: rawIdx === '' ? undefined : +rawIdx }
                 : {};
             scheduleHighlight(q, opts);
         }, true);
@@ -1510,7 +1656,8 @@
                 attrs: {
                     class: h.snippetIsCode ? 'crto-snip code' : 'crto-snip',
                     'data-hit-kind': h.hitKind || '',
-                    'data-hit-kind-index': String(h.hitKindIndex || 0),
+                    'data-hit-kind-index': h.hitKindIndex == null ? '' : String(h.hitKindIndex),
+                    'data-unit-id': String(u.id || ''),
                 },
             });
             n.appendChild(highlightSnippet(h.snippet, query, fuzzy));
