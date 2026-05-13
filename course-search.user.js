@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ZPS Course Search
 // @namespace    zps-course-search
-// @version      0.15.5
+// @version      0.15.6
 // @description  Cross-unit full-text search for ZeroPoint Security course players. Adds a Search tab to the sidebar that finds keywords across every ebook unit, code block, lab markdown, and discussion comments. Clicking a result jumps to the unit with the match highlighted.
 // @author       gregd
 // @match        https://www.zeropointsecurity.co.uk/path-player*
@@ -167,7 +167,7 @@
         watchForRerender();
         watchLabAttachments();
         watchIframeForBeforeUnload();
-        console.log(`${TAG} v0.15.5 initialised (course: ${getCourseId()})`);
+        console.log(`${TAG} v0.15.6 initialised (course: ${getCourseId()})`);
     }
 
     const getStore = () => window.coursePlayerVue.$store;
@@ -785,6 +785,19 @@
                     }
                     continue;
                 }
+                if (kind === 'discuss') {
+                    const comments = f.split('\n');
+                    let offset = 0;
+                    for (let ci = 0; ci < comments.length; ci++) {
+                        const c = comments[ci];
+                        if (tokens.every(t => c.includes(t))) {
+                            const idx = c.indexOf(tokens[0]);
+                            return [{ fieldIdx: i, idx: offset + idx, len: tokens[0].length, kind, kindIndex: 0 }];
+                        }
+                        offset += c.length + 1;
+                    }
+                    continue;
+                }
                 for (const t of tokens) {
                     const idx = f.indexOf(t);
                     if (idx !== -1) return [{ fieldIdx: i, idx, len: t.length, kind, kindIndex: 0 }];
@@ -1000,12 +1013,19 @@
         if (!needles.length) return null;
         let seen = 0;
         for (const record of flattenDiscussionApiRecords(posts)) {
-            const count = countTextMatches(record.text, needles, isFuzzy);
-            if (!count) continue;
-            if (seen + count > targetIdx) {
-                return { ...record, targetIndex: isFuzzy ? 0 : targetIdx - seen, needles };
+            if (isFuzzy) {
+                const text = normChar(record.text);
+                if (!needles.every(n => text.includes(n))) continue;
+                if (seen === targetIdx) return { ...record, targetIndex: 0, needles };
+                seen++;
+            } else {
+                const count = countTextMatches(record.text, needles, false);
+                if (!count) continue;
+                if (seen + count > targetIdx) {
+                    return { ...record, targetIndex: targetIdx - seen, needles };
+                }
+                seen += count;
             }
-            seen += count;
         }
         return null;
     }
