@@ -87,8 +87,8 @@ Request counts are approximate and depend on the course. Concurrency and delay b
 
 ## Known Limitations
 
-- Rapid clicking through search results is throttled (500ms) to prevent a LearnWorlds course player crash. If the page stops responding, refresh the browser tab.
-- Discussion comment search loads posts lazily (12 at a time). The script retries several times but may not reach deeply nested or late-loading comments behind collapsed reply threads.
+- Rapid clicking the same search result is throttled (500ms) to prevent a LearnWorlds course player crash. Clicking different results is not throttled.
+- Discussion comment highlighting requires the target comment to be rendered in the DOM. The script expands collapsed reply threads and scrolls the discuss pane to load more posts, but deeply nested comments may take a few seconds to appear.
 
 ## Todo
 
