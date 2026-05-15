@@ -27,7 +27,7 @@ Each scope can be toggled independently via the toolbar. Only enabled scopes are
 | Mode | How to use | Description |
 |------|-----------|-------------|
 | Exact | Type normally | Matches the exact phrase, flexible on whitespace and special characters. |
-| Fuzzy | Prefix with `~` | Matches words in any order within a paragraph. Tolerates curly quotes, en-dashes, non-breaking spaces, and zero-width characters injected by the LearnWorlds renderer. |
+| Fuzzy | Click the `~` toolbar button | Matches words in any order within the same scope unit (code block, comment, or page). Tolerates curly quotes, en-dashes, non-breaking spaces, and zero-width characters injected by the LearnWorlds renderer. |
 
 ### Additional toolbar controls
 
