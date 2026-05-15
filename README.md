@@ -77,13 +77,13 @@ Results are grouped by module and unit. Click any result to navigate to that uni
 
 Indexing runs in three phases: ebook and code content first, then lab markdown, then discussion comments. Each phase uses a configurable number of concurrent workers (default 4) with an optional delay between requests. The results are stored in localStorage keyed by course ID, so indexing only needs to run once per course. All requests use the same authentication as normal course browsing.
 
-| Content type | Endpoint | Requests | Notes |
-|-------------|----------|----------|-------|
-| Ebook units | GET per unit page | ~135 | Fetches rendered HTML. |
-| Discussion comments | GET /api/posts per unit | ~164 | Returns all posts for a unit in a single call. |
-| Lab markdown | GET /api/unlock/attachment per SCORM unit | ~22 | Fetches .md files via signed Azure Blob URLs. |
+| Content type | Endpoint | Notes |
+|-------------|----------|-------|
+| Ebook units | GET per unit page | Fetches rendered HTML for body text and code blocks. |
+| Discussion comments | GET /api/posts per unit | Returns all posts for a unit in a single call. |
+| Lab markdown | GET /api/unlock/attachment per SCORM unit | Fetches .md files via signed Azure Blob URLs. |
 
-Request counts are approximate and depend on the course. Concurrency and delay between requests are configurable at the top of the script.
+Total request count depends on the course size. Concurrency and delay between requests are configurable at the top of the script.
 
 ## Known Limitations
 
