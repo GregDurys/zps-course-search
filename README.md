@@ -75,7 +75,7 @@ Results are grouped by module and unit. Click any result to navigate to that uni
 
 ## Indexing
 
-Indexing runs in three phases: ebook and code content first, then lab markdown, then discussion comments. Each phase uses a configurable number of concurrent workers (default 4) with an optional delay between requests. The results are stored in localStorage keyed by course ID, so indexing only needs to run once per course. All requests use the same authentication as normal course browsing.
+Indexing runs in three phases: ebook and code content first, then lab markdown, then discussion comments. Requests are sequential by default (CONCURRENCY = 1). Increase CONCURRENCY at the top of the script for faster indexing. The results are stored in localStorage keyed by course ID, so indexing only needs to run once per course. All requests use the same authentication as normal course browsing.
 
 | Content type | Endpoint | Notes |
 |-------------|----------|-------|

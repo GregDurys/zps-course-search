@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ZPS Course Search
 // @namespace    zps-course-search
-// @version      0.15.6
+// @version      0.15.7
 // @description  Cross-unit full-text search for ZeroPoint Security course players. Adds a Search tab to the sidebar that finds keywords across every ebook unit, code block, lab markdown, and discussion comments. Clicking a result jumps to the unit with the match highlighted.
 // @author       gregd
 // @match        https://www.zeropointsecurity.co.uk/path-player*
@@ -12,60 +12,58 @@
 //
 // Purpose
 // -------
-// LearnWorlds (the platform ZeroPoint use) ships no in-course search. This
-// userscript injects a Search tab next to Path/Discuss in the course player
-// sidebar and indexes every unit, making any command, keyword, or phrase
-// findable across the whole course from one place.
+// LearnWorlds ships no in-course search. This userscript injects a Search
+// tab next to Path/Discuss in the course player sidebar and indexes every
+// unit, making any command, keyword, or phrase findable across the whole
+// course from one place.
 //
 // Features
-// - Full-text search across ebook prose, code blocks, lab markdown, discussion
-//   comments, and unit titles. Scopes toggle individually via the toolbar
-//   (Aa / lines / <> / doc / speech-bubble).
-// - Discussion search: indexes all student/staff comments from the Discuss tab
-//   including author names. Clicking a discuss result switches to the Discuss
-//   tab, expands collapsed reply threads, and highlights the matching comment.
-// - Exact phrase or fuzzy mode (~) with whitespace-flexible matching that
-//   tolerates curly quotes, en-dashes, non-breaking spaces, and zero-width
-//   characters injected by the LearnWorlds renderer.
-// - Multi-hit highlighting: long bodies, code blocks, and discussions emit one
-//   result row per occurrence, with separate navigation between matches.
+// - Full-text search across ebook prose, code blocks, lab markdown,
+//   discussion comments, and unit titles. Scopes toggle individually
+//   via the toolbar (Aa / lines / <> / doc / speech-bubble).
+// - Discussion search: indexes all student/staff comments from the
+//   Discuss tab including author names. Clicking a discuss result
+//   switches to the Discuss tab, expands collapsed reply threads, and
+//   highlights the matching comment.
+// - Exact phrase or fuzzy mode (~ toolbar toggle) with whitespace-
+//   flexible matching that tolerates curly quotes, en-dashes,
+//   non-breaking spaces, and zero-width characters injected by the
+//   LearnWorlds renderer. Fuzzy requires all tokens in the same scope
+//   unit (code block, comment, or page).
+// - Multi-hit highlighting: long bodies, code blocks, and discussions
+//   emit one result row per occurrence, with separate navigation
+//   between matches.
 // - Lab markdown: labs are SCORM units whose .md files are fetched via
-//   LearnWorlds' attachment-unlock API during indexing. No separate button
-//   or navigation required - lab content is indexed alongside ebook and
-//   discussion content in a single pass.
-// - "Suppress Leave site? prompts" toggle (bell icon): silences the SCORM
-//   beforeunload dialog when navigating between lab units. Default off;
-//   recommended on for speed-skimming, off when actually solving labs.
+//   LearnWorlds' attachment-unlock API during indexing.
+// - "Suppress Leave site? prompts" toggle (bell icon): silences the
+//   SCORM beforeunload dialog when navigating between lab units.
 // - Per-course cache, keyed by the ?courseid= query parameter. Course
 //   switching does not require re-indexing.
 //
 // Install
 // 1. Install Tampermonkey (Chrome/Edge) or Violentmonkey (Firefox).
-// 2. Either load this file's URL in the browser, or paste its contents into a
-//    new userscript in the extension dashboard.
-// 3. Open any ZeroPoint Security course player page. A Search tab will appear
-//    in the left sidebar.
+// 2. Either load this file's URL in the browser, or paste its contents
+//    into a new userscript in the extension dashboard.
+// 3. Open any LearnWorlds course player page on the matched domain. A
+//    Search tab will appear in the left sidebar.
 // 4. Click "Index" once. Click "Re-index" when course content changes.
 //
 // Network requests made during indexing
-// - Ebook units: one GET per unit to fetch rendered HTML (~135 requests).
-// - Discussion comments: one GET /api/posts per unit to fetch all comments
-//   (~164 requests). Returns all posts for that unit in a single call.
-// - Lab files: one GET /api/unlock/attachment per SCORM unit with a .md
-//   attachment (~22 requests) plus one GET to the signed Azure Blob URL
-//   per file (~22 requests, ~44 total for labs).
-// - Total: approximately 340 requests per full index build. Requests are
-//   made with 4 concurrent workers. No navigation or click-tricks required -
-//   all fetching is pure async API calls. The index is built once on demand
-//   and cached in localStorage.
+// - Ebook units: one GET per unit page (rendered HTML).
+// - Discussion comments: one GET /api/posts per unit (all posts in a
+//   single call).
+// - Lab files: one GET /api/unlock/attachment per SCORM unit with a
+//   .md attachment, plus one GET to the signed Azure Blob URL per file.
+// - Total request count depends on the course size. Requests are made
+//   sequentially by default (CONCURRENCY = 1). Increase CONCURRENCY
+//   at the top of the script for faster indexing.
 //
 // Notes
-// - The script only reads content already visible to a logged-in user. The
-//   discussion comments API returns the same data as the Discuss tab renders.
-// - The index is stored in browser localStorage. Nothing leaves the browser.
-// - Tested on Red Team Operator and RTO II in Chrome and Firefox with
-//   Tampermonkey. Other LearnWorlds-hosted courses on the same domain are
-//   expected to behave the same way.
+// - The script only reads content already visible to a logged-in user.
+// - The index is stored in browser localStorage. Nothing leaves the
+//   browser.
+// - Tested on LearnWorlds-hosted courses in Chrome and Firefox with
+//   Tampermonkey.
 //
 // Source: https://github.com/GregDurys/zps-course-search
 // License: MIT
@@ -84,7 +82,7 @@
     // ---- User-configurable indexing settings ----
     // CONCURRENCY: number of parallel requests during indexing (1-8).
     // Lower = gentler on the server, higher = faster indexing.
-    const CONCURRENCY = 4;
+    const CONCURRENCY = 1;
     // REQUEST_DELAY_MS: milliseconds to wait between each request during
     // indexing. Set to 0 for fastest indexing, increase if rate-limited.
     // Each worker waits this long after completing a unit before starting
@@ -167,7 +165,7 @@
         watchForRerender();
         watchLabAttachments();
         watchIframeForBeforeUnload();
-        console.log(`${TAG} v0.15.6 initialised (course: ${getCourseId()})`);
+        console.log(`${TAG} v0.15.7 initialised (course: ${getCourseId()})`);
     }
 
     const getStore = () => window.coursePlayerVue.$store;
